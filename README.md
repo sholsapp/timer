@@ -1,6 +1,8 @@
 # timer
 
-[![Travis](https://secure.travis-ci.org/sholsapp/timer.png?branch=master)](https://travis-ci.org/sholsapp/timer)
+<a href='https://travis-ci.org/sholsapp/timer'>
+<img src='https://img.shields.io/travis/sholsapp/timer/master.svg?style=flat-square' />
+</a>
 
 # about
 
