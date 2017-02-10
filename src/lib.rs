@@ -10,8 +10,10 @@ use std::time::Duration;
 /// A countdown timer counts down from the specified `step` parameter. While
 /// counting down, it is possible to reset the timer.
 ///
-/// If the count down timer expires, i.e., if `step` many nanoseconds expires,
-/// the `timed_out` condition variable is signalled.
+/// If the count down timer expires, i.e., if `step`amount of time passes,
+/// the `timed_out` condition variable is signalled. Callers can wait on
+/// this condition variable to do something useful if/when the timer expires,
+/// such as send a heartbeat or start an election for a quiet leader leader.
 ///
 pub struct Timer {
     // Internal condition variable used to implement a timer.
