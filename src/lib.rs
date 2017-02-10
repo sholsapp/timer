@@ -37,6 +37,8 @@ impl Timer {
     ///
     /// # Arguments
     ///
+    /// * `step` - The duration of time to wait for each count down.
+    /// * `jitter` - The duration of time to randomize each count down.
     /// * `timed_out` - Condition to signal if the timer expires.
     ///
     pub fn new(step: Duration, jitter: Duration, timed_out: Arc<Condvar>) -> Timer {
