@@ -1,3 +1,5 @@
+extern crate rand;
+
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Mutex, Condvar};
@@ -20,8 +22,10 @@ pub struct Timer {
     handle: Option<std::thread::JoinHandle<()>>,
     // Condition variable signalled if/when timer expires.
     pub timed_out: Arc<Condvar>,
-    // The amount of time in nanoseconds to count down from.
+    // The amount of time to count down from.
     pub step: Duration,
+    // The amount of time, if any, to randomize the count down from.
+    pub jitter: Duration,
     // True if the timer is counting down.
     pub alive: Arc<AtomicBool>,
     /// Number of times this timer has expired.
@@ -35,7 +39,7 @@ impl Timer {
     ///
     /// * `timed_out` - Condition to signal if the timer expires.
     ///
-    pub fn new(step: Duration, timed_out: Arc<Condvar>) -> Timer {
+    pub fn new(step: Duration, jitter: Duration, timed_out: Arc<Condvar>) -> Timer {
         Timer {
             handle: None,
             alive: Arc::new(AtomicBool::new(false)),
@@ -43,7 +47,27 @@ impl Timer {
             m: Arc::new(Mutex::new(false)),
             timed_out: timed_out,
             step: step,
+            jitter: jitter,
             expiries: Arc::new(AtomicUsize::new(0)),
+        }
+    }
+    /// Convert a duration to milliseconds.
+    ///
+    /// Annoying, right? See https://github.com/rust-lang/rfcs/issues/1545.
+    ///
+    fn duration_to_millis(d: Duration) -> u64 {
+        1000 * d.as_secs() + (d.subsec_nanos() as u64 / 1000000)
+    }
+    /// Calculate a wait time.
+    ///
+    fn calculate_wait_duration(step: Duration, jitter: Duration) -> Duration {
+        let random = rand::random::<u64>();
+        let step_ms = Timer::duration_to_millis(step);
+        let jitter_ms = Timer::duration_to_millis(jitter);
+        if jitter_ms > 0 {
+            return Duration::from_millis(step_ms - (random % jitter_ms))
+        } else {
+            return Duration::from_millis(step_ms)
         }
     }
     /// Internal timer loop.
@@ -53,10 +77,12 @@ impl Timer {
             m: Arc<Mutex<bool>>,
             timed_out: Arc<Condvar>,
             expiries: Arc<AtomicUsize>,
-            step: Duration) {
+            step: Duration,
+            jitter: Duration) {
         alive.store(true, Ordering::SeqCst);
         while alive.load(Ordering::SeqCst) {
-            match cv.wait_timeout(m.lock().unwrap(), step) {
+            let wait_duration = Timer::calculate_wait_duration(step, jitter);
+            match cv.wait_timeout(m.lock().unwrap(), wait_duration) {
                 Ok((_, result)) => {
                     if result.timed_out() {
                         expiries.fetch_add(1, Ordering::SeqCst);
@@ -78,8 +104,9 @@ impl Timer {
         let m = self.m.clone();
         let timed_out = self.timed_out.clone();
         let step = self.step;
+        let jitter = self.jitter;
         self.handle = Some(std::thread::spawn(move || {
-            Timer::spin(alive, cv, m, timed_out, expiries, step);
+            Timer::spin(alive, cv, m, timed_out, expiries, step, jitter);
         }));
     }
     /// Stop the timer.
@@ -101,18 +128,22 @@ impl Timer {
 fn it_works() {
     let cv = Arc::new(Condvar::new());
     let d = Duration::from_secs(5);
-    let t = Timer::new(d, cv);
+    let j = Duration::from_secs(0);
+    let t = Timer::new(d, j, cv);
     assert!(t.alive.load(Ordering::SeqCst) == false);
 }
 
 #[test]
 fn timer_start() {
     let cv = Arc::new(Condvar::new());
-    let mut t = Timer::new(Duration::from_millis(50), cv);
+    let mut t = Timer::new(Duration::from_millis(50),
+                           Duration::from_millis(0),
+                           cv);
     t.start();
     // This should cause at least two expiries...
     std::thread::sleep(Duration::from_millis(100));
     t.stop();
+    println!("{}", t.expiries.load(Ordering::SeqCst));
     assert!(t.expiries.load(Ordering::SeqCst) >= 2);
     assert!(t.expiries.load(Ordering::SeqCst) < 5);
 }
@@ -120,7 +151,9 @@ fn timer_start() {
 #[test]
 fn timer_reset() {
     let cv = Arc::new(Condvar::new());
-    let mut t = Timer::new(Duration::from_millis(50), cv);
+    let mut t = Timer::new(Duration::from_millis(50),
+                           Duration::from_millis(10),
+                           cv);
     t.start();
     // This should cause two expiries...
     std::thread::sleep(Duration::from_millis(125));

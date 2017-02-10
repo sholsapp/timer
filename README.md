@@ -9,7 +9,7 @@
 A countdown timer counts down from the specified `step` parameter. While
 counting down, it is possible to reset the timer.
 
-If the count down timer expires, i.e., if `step` many nanoseconds expires, the
+If the count down timer expires, i.e., if the duration `step` expires, the
 `timed_out` condition variable is signalled.
 
 # usage
